@@ -106,7 +106,8 @@
 .preview-bottom { min-height: 83px; display: flex; align-items: center; gap: 18px; padding: 10px 9px 8px; }
 .flag-preview { display: grid; gap: 8px; }
 .flag-label, .preview-copy > span { color: #57706b; font: 800 7px var(--display); }
-.sample-flag { width: 52px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(23,46,56,.2); box-shadow: 2px 2px 0 rgba(23,46,56,.2); }
+.sample-flag { width: 52px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(23,46,56,.2); box-shadow: 2px 2px 0 rgba(23,46,56,.2); overflow: hidden; background: #fffdf1; }
+.sample-flag img, .large-flag img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .japan-flag { background: #fffdf1; }
 .japan-flag span { width: 12px; aspect-ratio: 1; border-radius: 50%; background: #d9514c; }
 .preview-separator { height: 45px; width: 1px; background: #9eb7a9; }
@@ -118,6 +119,17 @@
 .panel-footnote { min-height: 22px; padding: 7px 3px 0; border-top: 1px solid #a9c1b1; color: #6c8579; font-size: 7px; }
 .home-footer { position: absolute; right: 0; bottom: 22px; left: 0; display: flex; justify-content: space-between; color: #84938a; font: 800 7px var(--display); }
 .home-footer b { color: var(--coral); font-size: 12px; vertical-align: -1px; }
+
+.api-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid rgba(225, 223, 198, 0.25); background: rgba(0,0,0,0.25); color: #b7ceba; font: 800 8px var(--display); border-radius: 2px; }
+.api-badge i { width: 6px; height: 6px; border-radius: 50%; background: #37c871; box-shadow: 0 0 6px #37c871; display: inline-block; }
+
+.country-trivia { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding: 6px 8px; background: rgba(255, 255, 255, 0.05); border-left: 2px solid var(--lime); font-size: 10px; color: #d4e2d6; }
+.country-trivia span b { color: #fff; font-weight: 600; }
+
+.completion-view { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 20px; gap: 16px; background: #242a31; border: 2px solid #e1dfc6; box-shadow: 5px 5px 0 #101317; margin: 30px auto; max-width: 520px; }
+.completion-view h2 { margin: 0; font-size: 28px; color: var(--lime); }
+.completion-view p { margin: 0; color: #d4e2d6; font-size: 14px; }
+.completion-actions { display: flex; gap: 12px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
 
 .game-screen { min-height: calc(100vh - 77px); padding: 37px 0 34px; animation: arrive .3s ease-out both; }
 .game-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 24px; }
@@ -131,7 +143,7 @@
 .challenge-panel { min-height: 490px; display: flex; flex-direction: column; padding: 17px; border: 2px solid #e1dfc6; background: #242a31; box-shadow: 5px 5px 0 #101317; }
 .challenge-topline { display: flex; justify-content: space-between; color: #c4d198; font: 800 8px var(--display); }
 .challenge-number { color: var(--coral); }
-.large-flag { width: 100%; height: 145px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; margin: 23px 0 20px; border: 2px solid #11171b; box-shadow: 4px 4px 0 #11171b; }
+.large-flag { width: 100%; height: 145px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; margin: 23px 0 20px; border: 2px solid #11171b; box-shadow: 4px 4px 0 #11171b; background: #1a2026; }
 .large-flag.japan-flag { background: #fffdf1; }
 .large-flag.japan-flag span { width: 54px; height: 54px; border-radius: 50%; background: #ce4c44; }
 .brazil-flag { background: #18934e; }
