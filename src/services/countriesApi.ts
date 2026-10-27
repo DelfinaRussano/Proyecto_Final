@@ -7,6 +7,7 @@ export interface CountryChallenge {
   capital: string
   flagUrl: string
   code: string
+  numericCode: string
   population?: number
 }
 
@@ -17,23 +18,28 @@ interface RawCountry {
   subregion?: string
   capital?: string[]
   cca2?: string
+  ccn3?: string
   population?: number
 }
 
 const FALLBACK_CHALLENGES: CountryChallenge[] = [
-  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', population: 125800000 },
-  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', population: 214300000 },
-  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', population: 109300000 },
-  { id: 'fr', country: 'Francia', continent: 'Europa', capital: 'París', flagUrl: 'https://flagcdn.com/w640/fr.png', code: 'FR', population: 67750000 },
-  { id: 'ca', country: 'Canadá', continent: 'América del Norte', capital: 'Ottawa', flagUrl: 'https://flagcdn.com/w640/ca.png', code: 'CA', population: 38250000 },
-  { id: 'au', country: 'Australia', continent: 'Oceanía', capital: 'Canberra', flagUrl: 'https://flagcdn.com/w640/au.png', code: 'AU', population: 25690000 },
-  { id: 'ar', country: 'Argentina', continent: 'América del Sur', capital: 'Buenos Aires', flagUrl: 'https://flagcdn.com/w640/ar.png', code: 'AR', population: 45810000 },
-  { id: 'mx', country: 'México', continent: 'América del Norte', capital: 'Ciudad de México', flagUrl: 'https://flagcdn.com/w640/mx.png', code: 'MX', population: 126700000 },
-  { id: 'ke', country: 'Kenia', continent: 'África', capital: 'Nairobi', flagUrl: 'https://flagcdn.com/w640/ke.png', code: 'KE', population: 53010000 },
-  { id: 'kr', country: 'Corea del Sur', continent: 'Asia', capital: 'Seúl', flagUrl: 'https://flagcdn.com/w640/kr.png', code: 'KR', population: 51740000 },
-  { id: 'es', country: 'España', continent: 'Europa', capital: 'Madrid', flagUrl: 'https://flagcdn.com/w640/es.png', code: 'ES', population: 47420000 },
-  { id: 'nz', country: 'Nueva Zelanda', continent: 'Oceanía', capital: 'Wellington', flagUrl: 'https://flagcdn.com/w640/nz.png', code: 'NZ', population: 5123000 },
+  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', population: 125800000 },
+  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', numericCode: '076', population: 214300000 },
+  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', numericCode: '818', population: 109300000 },
+  { id: 'fr', country: 'Francia', continent: 'Europa', capital: 'París', flagUrl: 'https://flagcdn.com/w640/fr.png', code: 'FR', numericCode: '250', population: 67750000 },
+  { id: 'ca', country: 'Canadá', continent: 'América del Norte', capital: 'Ottawa', flagUrl: 'https://flagcdn.com/w640/ca.png', code: 'CA', numericCode: '124', population: 38250000 },
+  { id: 'au', country: 'Australia', continent: 'Oceanía', capital: 'Canberra', flagUrl: 'https://flagcdn.com/w640/au.png', code: 'AU', numericCode: '036', population: 25690000 },
+  { id: 'ar', country: 'Argentina', continent: 'América del Sur', capital: 'Buenos Aires', flagUrl: 'https://flagcdn.com/w640/ar.png', code: 'AR', numericCode: '032', population: 45810000 },
+  { id: 'mx', country: 'México', continent: 'América del Norte', capital: 'Ciudad de México', flagUrl: 'https://flagcdn.com/w640/mx.png', code: 'MX', numericCode: '484', population: 126700000 },
+  { id: 'ke', country: 'Kenia', continent: 'África', capital: 'Nairobi', flagUrl: 'https://flagcdn.com/w640/ke.png', code: 'KE', numericCode: '404', population: 53010000 },
+  { id: 'kr', country: 'Corea del Sur', continent: 'Asia', capital: 'Seúl', flagUrl: 'https://flagcdn.com/w640/kr.png', code: 'KR', numericCode: '410', population: 51740000 },
+  { id: 'es', country: 'España', continent: 'Europa', capital: 'Madrid', flagUrl: 'https://flagcdn.com/w640/es.png', code: 'ES', numericCode: '724', population: 47420000 },
+  { id: 'nz', country: 'Nueva Zelanda', continent: 'Oceanía', capital: 'Wellington', flagUrl: 'https://flagcdn.com/w640/nz.png', code: 'NZ', numericCode: '554', population: 5123000 },
 ]
+
+const countriesWithoutMapPolygons = new Set([
+  '535', '166', '162', '292', '312', '254', '474', '175', '638', '744', '772', '798', '581',
+])
 
 let cachedCountries: CountryChallenge[] | null = null
 
@@ -69,8 +75,9 @@ export async function fetchAllCountries(): Promise<CountryChallenge[]> {
       const continent = mapToContinent(item.region, item.subregion)
       const cca2 = item.cca2?.toLowerCase()
       const countryName = item.translations?.spa?.common || item.name?.common
+      const numericCode = item.ccn3?.padStart(3, '0')
 
-      if (continent && cca2 && countryName) {
+      if (continent && cca2 && countryName && numericCode) {
         parsed.push({
           id: cca2,
           country: countryName,
@@ -78,6 +85,7 @@ export async function fetchAllCountries(): Promise<CountryChallenge[]> {
           capital: item.capital?.[0] || 'No especificada',
           flagUrl: `https://flagcdn.com/w640/${cca2}.png`,
           code: item.cca2?.toUpperCase() || '',
+          numericCode,
           population: item.population,
         })
       }
@@ -96,7 +104,9 @@ export async function fetchAllCountries(): Promise<CountryChallenge[]> {
 }
 
 export async function getRandomChallenges(count: number = 5): Promise<CountryChallenge[]> {
-  const all = await fetchAllCountries()
+  const all = (await fetchAllCountries()).filter(
+    (country) => !countriesWithoutMapPolygons.has(country.numericCode),
+  )
   
   // Mezclar aleatoriamente asegurando variedad
   const shuffled = [...all].sort(() => 0.5 - Math.random())

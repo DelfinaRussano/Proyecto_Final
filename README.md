@@ -1,5 +1,21 @@
 # React + TypeScript + Vite
 
+## Google Maps
+
+The game uses Google Maps JavaScript API with country boundary polygons from GeoJSON. To enable it:
+
+1. Enable Maps JavaScript API and billing in Google Cloud.
+2. Create an API key restricted to Maps JavaScript API and your allowed websites.
+3. Add the key to `.env.local` in the project root:
+
+```env
+VITE_GOOGLE_MAPS_API_KEY=your_api_key
+```
+
+Restart the Vite dev server after changing the environment file. Do not commit `.env.local`.
+
+Country boundaries are loaded from the simplified [World Atlas TopoJSON](https://github.com/topojson/world-atlas) dataset.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

@@ -1,18 +1,18 @@
-import { useState, useEffect, type KeyboardEvent } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
+import { GoogleCountryMap } from './components/GoogleCountryMap'
 import {
   getRandomChallenges,
   fetchAllCountries,
-  type Continent,
   type CountryChallenge,
 } from './services/countriesApi'
 
 type Difficulty = 'easy' | 'hard'
 
 const INITIAL_FALLBACK: CountryChallenge[] = [
-  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', population: 125800000 },
-  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', population: 214300000 },
-  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', population: 109300000 },
+  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', population: 125800000 },
+  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', numericCode: '076', population: 214300000 },
+  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', numericCode: '818', population: 109300000 },
 ]
 
 function App() {
@@ -20,8 +20,8 @@ function App() {
   const [screen, setScreen] = useState<'home' | 'game'>('home')
   const [challenges, setChallenges] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
   const [challengeIndex, setChallengeIndex] = useState(0)
-  const [hoveredContinent, setHoveredContinent] = useState<Continent | null>(null)
   const [answer, setAnswer] = useState<'correct' | 'wrong' | null>(null)
+  const [selectedNumericCode, setSelectedNumericCode] = useState<string | null>(null)
   const [previewCountry, setPreviewCountry] = useState<CountryChallenge>(INITIAL_FALLBACK[0])
   const [isLoading, setIsLoading] = useState(false)
   const [isApiReady, setIsApiReady] = useState(false)
@@ -56,6 +56,7 @@ function App() {
     setIsLoading(true)
     setRoundComplete(false)
     setAnswer(null)
+    setSelectedNumericCode(null)
     setScore(0)
     setChallengeIndex(0)
 
@@ -72,9 +73,10 @@ function App() {
     }
   }
 
-  function chooseContinent(continent: Continent) {
+  function chooseCountry(numericCode: string) {
     if (answer === 'correct') return
-    const isCorrect = continent === currentChallenge.continent
+    setSelectedNumericCode(numericCode)
+    const isCorrect = numericCode === currentChallenge.numericCode
     if (isCorrect) {
       setScore((prev) => prev + 1)
       setAnswer('correct')
@@ -83,17 +85,11 @@ function App() {
     }
   }
 
-  function activateContinent(event: KeyboardEvent<SVGPathElement>, continent: Continent) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      chooseContinent(continent)
-    }
-  }
-
   function nextChallenge() {
     if (challengeIndex + 1 < challenges.length) {
       setChallengeIndex((prev) => prev + 1)
       setAnswer(null)
+      setSelectedNumericCode(null)
     } else {
       setRoundComplete(true)
     }
@@ -281,7 +277,7 @@ function App() {
                 {answer === 'wrong' && (
                   <>
                     <strong>Por ahí no</strong>
-                    <span>Probá con otra región del mapa.</span>
+                    <span>Probá con otro país del mapa.</span>
                   </>
                 )}
                 {!answer && (
@@ -289,7 +285,7 @@ function App() {
                     <strong>Tu turno</strong>
                     <span>
                       {difficulty === 'easy'
-                        ? 'Explorá el mapa para ver pistas de continentes.'
+                        ? 'Explorá el mapa para ver los nombres de los países.'
                         : 'Esta vez, confiá en tu memoria geográfica.'}
                     </span>
                   </>
@@ -313,96 +309,26 @@ function App() {
 
             <div className="map-panel">
               <div className="map-panel-header">
-                <span><i /> MAPA DE REGIONES</span>
-                <span>PARTIDA DINÁMICA · API REST</span>
+                <span><i /> MAPA DE PAÍSES</span>
+                <span>GOOGLE MAPS · ISO NUMÉRICO</span>
               </div>
               <div className="interactive-map">
-                <div className="map-grid" />
-                <svg viewBox="0 0 900 500" className="continent-map" aria-label="Mapa de regiones seleccionables">
-                  <path
-                    className={hoveredContinent === 'América del Norte' ? 'continent hovered' : 'continent'}
-                    d="M104 105 137 69l48-26 33 9 37-11 34 24 35 2 23 30-19 29 24 29-21 27-38 1-15 32-33 12-8 37-28 29-19-21 3-35-26-26-4-39-28-25 8-38-15-33 29-30Z"
-                    onClick={() => chooseContinent('América del Norte')}
-                    onKeyDown={(event) => activateContinent(event, 'América del Norte')}
-                    onMouseEnter={() => setHoveredContinent('América del Norte')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="América del Norte"
-                  />
-                  <path
-                    className={hoveredContinent === 'América del Sur' ? 'continent hovered' : 'continent'}
-                    d="m269 240 39 15 27 29-3 35 23 36-11 36-24 28-11 53-24 19-16-38-4-51-23-40 4-50-16-39 13-29Z"
-                    onClick={() => chooseContinent('América del Sur')}
-                    onKeyDown={(event) => activateContinent(event, 'América del Sur')}
-                    onMouseEnter={() => setHoveredContinent('América del Sur')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="América del Sur"
-                  />
-                  <path
-                    className={hoveredContinent === 'Europa' ? 'continent hovered' : 'continent'}
-                    d="m410 113 32-25 43 8 13 27-29 18-35-4-24 14-26-12Z"
-                    onClick={() => chooseContinent('Europa')}
-                    onKeyDown={(event) => activateContinent(event, 'Europa')}
-                    onMouseEnter={() => setHoveredContinent('Europa')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Europa"
-                  />
-                  <path
-                    className={hoveredContinent === 'África' ? 'continent hovered' : 'continent'}
-                    d="m438 179 33-20 51 9 25 31 30 18 13 43-21 34-7 57-28 43-30-12-23-40-5-44-27-24-17-41-25-15Z"
-                    onClick={() => chooseContinent('África')}
-                    onKeyDown={(event) => activateContinent(event, 'África')}
-                    onMouseEnter={() => setHoveredContinent('África')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="África"
-                  />
-                  <path
-                    className={hoveredContinent === 'Asia' ? 'continent hovered' : 'continent'}
-                    d="m523 116 61-35 83 13 42 28 77 13 23 37-27 25-44-16-22 21-34-9-30 31-25-9-25 25-29-19-8-32-37-18-22-29-36 2-20-15Z"
-                    onClick={() => chooseContinent('Asia')}
-                    onKeyDown={(event) => activateContinent(event, 'Asia')}
-                    onMouseEnter={() => setHoveredContinent('Asia')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Asia"
-                  />
-                  <path
-                    className={hoveredContinent === 'Oceanía' ? 'continent hovered' : 'continent'}
-                    d="m709 327 31-15 35 12 23 27-18 30-39 6-27-19-15-21Z"
-                    onClick={() => chooseContinent('Oceanía')}
-                    onKeyDown={(event) => activateContinent(event, 'Oceanía')}
-                    onMouseEnter={() => setHoveredContinent('Oceanía')}
-                    onMouseLeave={() => setHoveredContinent(null)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Oceanía"
-                  />
-                  <path className="continent tiny-island" d="m839 387 11-7 9 12-10 10-10-6Z" />
-                </svg>
-                {difficulty === 'easy' && hoveredContinent && (
-                  <div className="map-tooltip">{hoveredContinent}</div>
-                )}
+                <GoogleCountryMap
+                  targetCountryNumericCode={currentChallenge.numericCode}
+                  selectedNumericCode={selectedNumericCode}
+                  isCorrect={answer === 'correct'}
+                  showCountryNames={difficulty === 'easy'}
+                  onCountryClick={chooseCountry}
+                />
                 <div className="map-instruction">
-                  <span>+</span>{' '}
-                  {difficulty === 'easy'
-                    ? 'PASÁ SOBRE UNA REGIÓN PARA EXPLORAR'
-                    : 'SELECCIONÁ UNA REGIÓN'}
+                  <span>+</span> {difficulty === 'easy' ? 'PASÁ SOBRE UN PAÍS PARA VER SU NOMBRE' : 'SELECCIONÁ EL PAÍS CORRECTO'}
                 </div>
-                <div className="map-north">N <span>↑</span></div>
               </div>
               <div className="map-panel-footer">
                 <span>
                   <i /> {difficulty === 'easy' ? 'MODO FÁCIL · NOMBRES VISIBLES' : 'MODO DIFÍCIL · NOMBRES OCULTOS'}
                 </span>
-                <span>PARTIDAS GENERADAS ALEATORIAMENTE CON +200 PAÍSES</span>
+                <span>PAÍSES SELECCIONABLES · GOOGLE MAPS</span>
               </div>
             </div>
           </div>
