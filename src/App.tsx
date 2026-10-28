@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react'
 import './App.css'
 import { GoogleCountryMap } from './components/GoogleCountryMap'
 import {
-  getRandomChallenges,
   fetchAllCountries,
+  getRandomChallenges,
   type CountryChallenge,
 } from './services/countriesApi'
 
 type Difficulty = 'easy' | 'hard'
+const totalCountries = 195
+
 interface LeaderboardEntry {
   id: string
   playerName: string
@@ -37,50 +39,66 @@ function readLeaderboard(): LeaderboardEntry[] {
 }
 
 const INITIAL_FALLBACK: CountryChallenge[] = [
-  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', population: 125800000 },
-  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', numericCode: '076', population: 214300000 },
-  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', numericCode: '818', population: 109300000 },
+  { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', isSovereign: true, population: 125800000 },
+  { id: 'br', country: 'Brasil', continent: 'América del Sur', capital: 'Brasilia', flagUrl: 'https://flagcdn.com/w640/br.png', code: 'BR', numericCode: '076', isSovereign: true, population: 214300000 },
+  { id: 'eg', country: 'Egipto', continent: 'África', capital: 'El Cairo', flagUrl: 'https://flagcdn.com/w640/eg.png', code: 'EG', numericCode: '818', isSovereign: true, population: 109300000 },
 ]
+
+function getGeographicHint(target: CountryChallenge, selected: CountryChallenge | undefined) {
+  if (!selected) return null
+
+  const hints: string[] = []
+  if (target.continent === selected.continent) {
+    hints.push('Está en el mismo continente.')
+  } else {
+    hints.push('Está en otro continente.')
+  }
+
+  if (selected.alpha3 && target.borders?.includes(selected.alpha3)) {
+    hints.push(`Es limítrofe con ${selected.country}.`)
+  } else if (target.coordinates && selected.coordinates) {
+    const toRadians = (degrees: number) => degrees * Math.PI / 180
+    const [targetLatitude, targetLongitude] = target.coordinates
+    const [selectedLatitude, selectedLongitude] = selected.coordinates
+    const latitudeDifference = toRadians(selectedLatitude - targetLatitude)
+    const longitudeDifference = toRadians(selectedLongitude - targetLongitude)
+    const haversine = Math.sin(latitudeDifference / 2) ** 2
+      + Math.cos(toRadians(targetLatitude))
+      * Math.cos(toRadians(selectedLatitude))
+      * Math.sin(longitudeDifference / 2) ** 2
+    const centralAngle = 2 * Math.atan2(
+      Math.sqrt(Math.min(1, haversine)),
+      Math.sqrt(1 - Math.min(1, haversine)),
+    )
+    const distanceKm = 6371 * centralAngle
+
+    hints.push(distanceKm < 1000 ? 'Está muy cerca.' : distanceKm > 5000 ? 'Está muy lejos.' : 'Está a una distancia intermedia.')
+  }
+
+  return hints.join(' ')
+}
 
 function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [leaderboardDifficulty, setLeaderboardDifficulty] = useState<Difficulty>('easy')
   const [screen, setScreen] = useState<'home' | 'game'>('home')
   const [challenges, setChallenges] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
+  const [countryDirectory, setCountryDirectory] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
   const [challengeIndex, setChallengeIndex] = useState(0)
   const [answer, setAnswer] = useState<'correct' | 'wrong' | null>(null)
   const [selectedNumericCode, setSelectedNumericCode] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isApiReady, setIsApiReady] = useState(false)
   const [roundComplete, setRoundComplete] = useState(false)
   const [gameOver, setGameOver] = useState(false)
   const [mistakeCount, setMistakeCount] = useState(0)
   const [score, setScore] = useState(0)
+  const [guessedCountryNumericCodes, setGuessedCountryNumericCodes] = useState<string[]>([])
   const [currentStreak, setCurrentStreak] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>(readLeaderboard)
   const [gameStartedAt, setGameStartedAt] = useState<number | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [gameDurationSeconds, setGameDurationSeconds] = useState(0)
-
-  // Cargar datos de la API al montar la aplicación
-  useEffect(() => {
-    let isMounted = true
-    async function loadApiData() {
-      try {
-        const countries = await fetchAllCountries()
-        if (isMounted && countries.length > 0) {
-          setIsApiReady(true)
-        }
-      } catch (err) {
-        console.error('Error inicializando API de países:', err)
-      }
-    }
-    loadApiData()
-    return () => {
-      isMounted = false
-    }
-  }, [])
 
   useEffect(() => {
     if (screen !== 'game' || roundComplete || gameOver || gameStartedAt === null) return
@@ -94,7 +112,11 @@ function App() {
   }, [gameOver, gameStartedAt, roundComplete, screen])
 
   const currentChallenge = challenges[challengeIndex] || challenges[0]
-  const mistakeLimit = difficulty === 'easy' ? 5 : 3
+  const selectedCountry = countryDirectory.find((country) => country.numericCode === selectedNumericCode)
+  const geographicHint = answer === 'wrong' && difficulty === 'easy'
+    ? getGeographicHint(currentChallenge, selectedCountry)
+    : null
+  const mistakeLimit = 5
 
   async function startNewGame() {
     setIsLoading(true)
@@ -104,6 +126,7 @@ function App() {
     setAnswer(null)
     setSelectedNumericCode(null)
     setScore(0)
+    setGuessedCountryNumericCodes([])
     setCurrentStreak(0)
     setBestStreak(0)
     setChallengeIndex(0)
@@ -111,7 +134,8 @@ function App() {
     setGameDurationSeconds(0)
 
     try {
-      const newChallenges = await getRandomChallenges(5)
+      setCountryDirectory(await fetchAllCountries())
+      const newChallenges = await getRandomChallenges(totalCountries)
       setChallenges(newChallenges)
       setGameStartedAt(Date.now())
       setScreen('game')
@@ -157,6 +181,7 @@ function App() {
     if (isCorrect) {
       const nextStreak = currentStreak + 1
       setScore((prev) => prev + 1)
+      setGuessedCountryNumericCodes((previous) => [...previous, numericCode])
       setCurrentStreak(nextStreak)
       setBestStreak((best) => Math.max(best, nextStreak))
       setAnswer('correct')
@@ -183,11 +208,6 @@ function App() {
     }
   }
 
-  function formatPopulation(pop?: number) {
-    if (!pop) return 'No disponible'
-    return new Intl.NumberFormat('es-AR').format(pop) + ' hab.'
-  }
-
   function formatDuration(seconds: number) {
     const minutes = Math.floor(seconds / 60)
     const remainingSeconds = seconds % 60
@@ -205,19 +225,6 @@ function App() {
           <span className="wordmark-icon" aria-hidden="true"><span /></span>
           <span>FLAG<span className="wordmark-accent">QUEST</span></span>
         </button>
-        <div className="topbar-right">
-          {screen === 'game' && (
-            <>
-              <span className="api-badge" title="Consumiendo datos vía API">
-                <i /> {isApiReady ? 'API REST CONECTADA' : 'CARGANDO API...'}
-              </span>
-              <span className="build-tag"><i /> DEMO FULL</span>
-              <button className="text-button" type="button" onClick={() => setScreen('home')}>
-                ← Menú principal
-              </button>
-            </>
-          )}
-        </div>
       </header>
 
       {screen === 'home' ? (
@@ -237,7 +244,7 @@ function App() {
                 onClick={() => setDifficulty('easy')}
               >
                 <span className="option-mark easy-mark">E</span>
-                <span className="option-copy"><strong>Fácil</strong><small>Los nombres aparecen al explorar</small></span>
+                <span className="option-copy"><strong>Normal</strong><small>Nombres en el mapa y pistas activadas</small></span>
                 <span className="radio-mark" />
               </button>
               <button
@@ -247,7 +254,7 @@ function App() {
                 onClick={() => setDifficulty('hard')}
               >
                 <span className="option-mark hard-mark">D</span>
-                <span className="option-copy"><strong>Difícil</strong><small>Sin pistas al pasar el cursor</small></span>
+                <span className="option-copy"><strong>Difícil</strong><small>Sin nombres, sin pistas</small></span>
                 <span className="radio-mark" />
               </button>
             </div>
@@ -273,7 +280,7 @@ function App() {
                 aria-pressed={leaderboardDifficulty === 'easy'}
                 className={leaderboardDifficulty === 'easy' ? 'selected' : ''}
                 onClick={() => setLeaderboardDifficulty('easy')}
-              >Fácil</button>
+              >Normal</button>
               <button
                 type="button"
                 aria-pressed={leaderboardDifficulty === 'hard'}
@@ -329,11 +336,8 @@ function App() {
               <p className="eyebrow"><span>02</span> · PARTIDA CONECTADA A API</p>
               <h1>¿Dónde está?</h1>
             </div>
-            <div className="round-counter">
-              <span>DESAFÍO</span>
-              <strong>0{challengeIndex + 1}<i> / 0{challenges.length}</i></strong>
-            </div>
             <div className="game-stats">
+              <div><span>PAÍSES ADIVINADOS</span><strong>{score}/{totalCountries}</strong></div>
               <div><span>RACHA ACTUAL</span><strong>{currentStreak}</strong></div>
               <div><span>ERRORES</span><strong>{mistakeCount}/{mistakeLimit}</strong></div>
               <div><span>TIEMPO</span><strong>{formatDuration(elapsedSeconds)}</strong></div>
@@ -343,7 +347,7 @@ function App() {
             <aside className="challenge-panel">
               <div className="challenge-topline">
                 <span>ENCONTRÁ ESTE PAÍS</span>
-                <span className="challenge-number">#{String(challengeIndex + 1).padStart(2, '0')}</span>
+                <span className="challenge-number">#{String(challengeIndex + 1).padStart(3, '0')}</span>
               </div>
 
               <div className="large-flag" aria-label={`Bandera de ${currentChallenge.country}`}>
@@ -363,11 +367,6 @@ function App() {
                   <>
                     <strong>¡Bien ubicado!</strong>
                     <span>La bandera es de <b>{currentChallenge.country}</b>.</span>
-                    <div className="country-trivia">
-                      <span>🏛 <b>Capital:</b> {currentChallenge.capital}</span>
-                      <span>👥 <b>Población:</b> {formatPopulation(currentChallenge.population)}</span>
-                      <span>🌍 <b>Continente:</b> {currentChallenge.continent}</span>
-                    </div>
                   </>
                 )}
                 {answer === 'wrong' && (
@@ -378,6 +377,7 @@ function App() {
                         ? `Racha reiniciada. Te quedan ${mistakeLimit - mistakeCount} errores.`
                         : 'Límite de errores alcanzado.'}
                     </span>
+                    {geographicHint && <span className="geographic-hint">Pista: {geographicHint}</span>}
                   </>
                 )}
                 {!answer && (
@@ -399,7 +399,7 @@ function App() {
               ) : (
                 <div className="difficulty-chip">
                   <span className={difficulty === 'easy' ? 'chip-easy' : 'chip-hard'}>
-                    {difficulty === 'easy' ? 'FÁCIL' : 'DIFÍCIL'}
+                    {difficulty === 'easy' ? 'NORMAL' : 'DIFÍCIL'}
                   </span>
                   <span>·</span>
                   <span>{difficulty === 'easy' ? 'PISTAS ACTIVAS' : 'SIN PISTAS'}</span>
@@ -418,23 +418,19 @@ function App() {
                   selectedNumericCode={selectedNumericCode}
                   isCorrect={answer === 'correct'}
                   showCountryNames={difficulty === 'easy'}
+                  guessedCountryNumericCodes={guessedCountryNumericCodes}
+                  showGuessedCountries={difficulty === 'easy'}
                   onCountryClick={chooseCountry}
                 />
-                <div className="map-instruction">
-                  <span>+</span> {difficulty === 'easy' ? 'PASÁ SOBRE UN PAÍS PARA VER SU NOMBRE' : 'SELECCIONÁ EL PAÍS CORRECTO'}
-                </div>
               </div>
               <div className="map-panel-footer">
                 <span>
-                  <i /> {difficulty === 'easy' ? 'MODO FÁCIL · NOMBRES VISIBLES' : 'MODO DIFÍCIL · NOMBRES OCULTOS'}
+                  <i /> {difficulty === 'easy' ? 'MODO NORMAL · NOMBRES VISIBLES' : 'MODO DIFÍCIL · NOMBRES OCULTOS'}
                 </span>
                 <span>PAÍSES SELECCIONABLES · GOOGLE MAPS</span>
               </div>
             </div>
           </div>
-          <p className="prototype-note">
-            <span>!</span> Banderas y datos geográficos obtenidos dinámicamente vía API.
-          </p>
         </section>
       )}
       {screen === 'game' && gameOver && (

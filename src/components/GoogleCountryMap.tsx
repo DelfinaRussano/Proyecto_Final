@@ -11,17 +11,14 @@ interface GoogleCountryMapProps {
   selectedNumericCode: string | null
   isCorrect: boolean
   showCountryNames: boolean
+  guessedCountryNumericCodes: string[]
+  showGuessedCountries: boolean
   onCountryClick: (numericCode: string) => void
 }
 
 function getNumericCode(feature: google.maps.Data.Feature) {
   const featureId = feature.getId()
   return featureId === undefined ? '' : String(featureId).padStart(3, '0')
-}
-
-function getCountryName(feature: google.maps.Data.Feature) {
-  const name = feature.getProperty('ADMIN') ?? feature.getProperty('name') ?? feature.getProperty('NAME')
-  return typeof name === 'string' ? name : ''
 }
 
 function getMapStyles(showCountryNames: boolean): google.maps.MapTypeStyle[] {
@@ -41,19 +38,27 @@ export function GoogleCountryMap({
   selectedNumericCode,
   isCorrect,
   showCountryNames,
+  guessedCountryNumericCodes,
+  showGuessedCountries,
   onCountryClick,
 }: GoogleCountryMapProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null)
   const clickHandlerRef = useRef(onCountryClick)
   const showCountryNamesRef = useRef(showCountryNames)
+  const showGuessedCountriesRef = useRef(showGuessedCountries)
+  const isCorrectRef = useRef(isCorrect)
+  const guessedCountryNumericCodesRef = useRef(guessedCountryNumericCodes)
   const [mapError, setMapError] = useState<string | null>(null)
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 
   useEffect(() => {
     clickHandlerRef.current = onCountryClick
     showCountryNamesRef.current = showCountryNames
-  }, [onCountryClick, showCountryNames])
+    showGuessedCountriesRef.current = showGuessedCountries
+    isCorrectRef.current = isCorrect
+    guessedCountryNumericCodesRef.current = guessedCountryNumericCodes
+  }, [guessedCountryNumericCodes, isCorrect, onCountryClick, showCountryNames, showGuessedCountries])
 
   useEffect(() => {
     if (!apiKey) return
@@ -93,32 +98,31 @@ export function GoogleCountryMap({
 
         const geoJson = topojsonFeature(topology, topology.objects.countries)
         const features = map.data.addGeoJson(geoJson)
+        map.data.addGeoJson({
+          type: 'Feature',
+          id: '798',
+          properties: {},
+          geometry: { type: 'Point', coordinates: [177.156, -8.52] },
+        })
         if (!features.some((feature) => getNumericCode(feature))) {
           throw new Error('El mapa no contiene códigos numéricos de países compatibles.')
         }
 
-        const infoWindow = new google.maps.InfoWindow()
         clickListener = map.data.addListener('click', (event: google.maps.Data.MouseEvent) => {
-          infoWindow.close()
           const numericCode = getNumericCode(event.feature)
           if (numericCode) clickHandlerRef.current(numericCode)
         })
         mouseoverListener = map.data.addListener('mouseover', (event: google.maps.Data.MouseEvent) => {
+          const numericCode = getNumericCode(event.feature)
+          if (
+            isCorrectRef.current
+            || (showGuessedCountriesRef.current && guessedCountryNumericCodesRef.current.includes(numericCode))
+          ) return
+          if (numericCode === '798') return
           map.data.overrideStyle(event.feature, { fillColor: '#d2d978', fillOpacity: 0.9 })
-          if (showCountryNamesRef.current) {
-            const countryName = getCountryName(event.feature)
-            if (countryName && event.latLng) {
-              const label = document.createElement('span')
-              label.textContent = countryName
-              infoWindow.setContent(label)
-              infoWindow.setPosition(event.latLng)
-              infoWindow.open({ map })
-            }
-          }
         })
         mouseoutListener = map.data.addListener('mouseout', (event: google.maps.Data.MouseEvent) => {
           map.data.revertStyle(event.feature)
-          infoWindow.close()
         })
       } catch (error) {
         console.error('No se pudo inicializar Google Maps:', error)
@@ -146,17 +150,42 @@ export function GoogleCountryMap({
       const numericCode = getNumericCode(feature)
       const isTarget = numericCode === targetCountryNumericCode
       const isSelectedWrongCountry = numericCode === selectedNumericCode && !isCorrect
+      const isGuessed = guessedCountryNumericCodes.includes(numericCode)
+      const isColoredGuessed = isGuessed && showGuessedCountries
+      const isTuvalu = numericCode === '798'
+      const fillColor = isColoredGuessed
+        ? '#285a3b'
+        : isTarget && isCorrect
+          ? '#d9ed78'
+          : isSelectedWrongCountry
+            ? '#ff6655'
+            : '#668f76'
+      const fillOpacity = isColoredGuessed || (isTarget && isCorrect)
+        ? 0.95
+        : isSelectedWrongCountry
+          ? 0.85
+          : 0.68
 
       return {
-        clickable: Boolean(numericCode),
-        fillColor: isTarget && isCorrect ? '#d9ed78' : isSelectedWrongCountry ? '#ff6655' : '#668f76',
-        fillOpacity: isTarget && isCorrect ? 0.9 : isSelectedWrongCountry ? 0.85 : 0.68,
+        clickable: Boolean(numericCode) && !isCorrect && !isGuessed,
+        fillColor,
+        fillOpacity,
         strokeColor: '#405f57',
         strokeWeight: 0.7,
-        zIndex: isTarget || isSelectedWrongCountry ? 2 : 1,
+        ...(isTuvalu && {
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor,
+            fillOpacity,
+            scale: 8,
+            strokeColor: '#405f57',
+            strokeWeight: 1.5,
+          },
+        }),
+        zIndex: isGuessed || isTarget || isSelectedWrongCountry ? 2 : 1,
       }
     })
-  }, [isCorrect, mapInstance, selectedNumericCode, targetCountryNumericCode])
+  }, [guessedCountryNumericCodes, isCorrect, mapInstance, selectedNumericCode, showGuessedCountries, targetCountryNumericCode])
 
   const visibleMapError = mapError ?? (!apiKey ? 'Configurá VITE_GOOGLE_MAPS_API_KEY para cargar Google Maps.' : null)
 
