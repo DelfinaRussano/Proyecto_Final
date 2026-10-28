@@ -8,6 +8,33 @@ import {
 } from './services/countriesApi'
 
 type Difficulty = 'easy' | 'hard'
+interface LeaderboardEntry {
+  id: string
+  playerName: string
+  streak: number
+  durationSeconds: number
+  difficulty: Difficulty
+}
+
+const leaderboardStorageKey = 'flagquest-leaderboard-v1'
+
+function readLeaderboard(): LeaderboardEntry[] {
+  try {
+    const storedEntries = localStorage.getItem(leaderboardStorageKey)
+    if (!storedEntries) return []
+    const parsedEntries: unknown = JSON.parse(storedEntries)
+    if (!Array.isArray(parsedEntries)) return []
+    return parsedEntries.filter((entry): entry is LeaderboardEntry =>
+      typeof entry?.id === 'string'
+      && typeof entry?.playerName === 'string'
+      && typeof entry?.streak === 'number'
+      && typeof entry?.durationSeconds === 'number'
+      && (entry?.difficulty === 'easy' || entry?.difficulty === 'hard'),
+    )
+  } catch {
+    return []
+  }
+}
 
 const INITIAL_FALLBACK: CountryChallenge[] = [
   { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', population: 125800000 },
@@ -17,16 +44,24 @@ const INITIAL_FALLBACK: CountryChallenge[] = [
 
 function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
+  const [leaderboardDifficulty, setLeaderboardDifficulty] = useState<Difficulty>('easy')
   const [screen, setScreen] = useState<'home' | 'game'>('home')
   const [challenges, setChallenges] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
   const [challengeIndex, setChallengeIndex] = useState(0)
   const [answer, setAnswer] = useState<'correct' | 'wrong' | null>(null)
   const [selectedNumericCode, setSelectedNumericCode] = useState<string | null>(null)
-  const [previewCountry, setPreviewCountry] = useState<CountryChallenge>(INITIAL_FALLBACK[0])
   const [isLoading, setIsLoading] = useState(false)
   const [isApiReady, setIsApiReady] = useState(false)
   const [roundComplete, setRoundComplete] = useState(false)
+  const [gameOver, setGameOver] = useState(false)
+  const [mistakeCount, setMistakeCount] = useState(0)
   const [score, setScore] = useState(0)
+  const [currentStreak, setCurrentStreak] = useState(0)
+  const [bestStreak, setBestStreak] = useState(0)
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>(readLeaderboard)
+  const [gameStartedAt, setGameStartedAt] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [gameDurationSeconds, setGameDurationSeconds] = useState(0)
 
   // Cargar datos de la API al montar la aplicación
   useEffect(() => {
@@ -36,9 +71,6 @@ function App() {
         const countries = await fetchAllCountries()
         if (isMounted && countries.length > 0) {
           setIsApiReady(true)
-          // Elegir país aleatorio para la vista previa en Inicio
-          const randomPreview = countries[Math.floor(Math.random() * countries.length)]
-          setPreviewCountry(randomPreview)
         }
       } catch (err) {
         console.error('Error inicializando API de países:', err)
@@ -50,38 +82,93 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (screen !== 'game' || roundComplete || gameOver || gameStartedAt === null) return
+
+    const updateElapsedTime = () => {
+      setElapsedSeconds(Math.floor((Date.now() - gameStartedAt) / 1000))
+    }
+    updateElapsedTime()
+    const intervalId = window.setInterval(updateElapsedTime, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [gameOver, gameStartedAt, roundComplete, screen])
+
   const currentChallenge = challenges[challengeIndex] || challenges[0]
+  const mistakeLimit = difficulty === 'easy' ? 5 : 3
 
   async function startNewGame() {
     setIsLoading(true)
     setRoundComplete(false)
+    setGameOver(false)
+    setMistakeCount(0)
     setAnswer(null)
     setSelectedNumericCode(null)
     setScore(0)
+    setCurrentStreak(0)
+    setBestStreak(0)
     setChallengeIndex(0)
+    setElapsedSeconds(0)
+    setGameDurationSeconds(0)
 
     try {
       const newChallenges = await getRandomChallenges(5)
       setChallenges(newChallenges)
+      setGameStartedAt(Date.now())
       setScreen('game')
     } catch (err) {
       console.error('Error al generar desafíos:', err)
       setChallenges(INITIAL_FALLBACK)
+      setGameStartedAt(Date.now())
       setScreen('game')
     } finally {
       setIsLoading(false)
     }
   }
 
+  function recordGameResult() {
+    const durationSeconds = gameStartedAt === null
+      ? elapsedSeconds
+      : Math.floor((Date.now() - gameStartedAt) / 1000)
+    const entry: LeaderboardEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      playerName: 'Jugador local',
+      streak: bestStreak,
+      durationSeconds,
+      difficulty,
+    }
+    setGameDurationSeconds(durationSeconds)
+    const currentModeEntries = [...leaderboardEntries.filter((result) => result.difficulty === difficulty), entry]
+      .sort((first, second) => second.streak - first.streak || first.durationSeconds - second.durationSeconds)
+      .slice(0, 10)
+    const otherModeEntries = leaderboardEntries.filter((result) => result.difficulty !== difficulty)
+    const updatedEntries = [...otherModeEntries, ...currentModeEntries]
+    setLeaderboardEntries(updatedEntries)
+    try {
+      localStorage.setItem(leaderboardStorageKey, JSON.stringify(updatedEntries))
+    } catch (error) {
+      console.warn('No se pudo guardar la leaderboard local:', error)
+    }
+  }
+
   function chooseCountry(numericCode: string) {
-    if (answer === 'correct') return
+    if (answer === 'correct' || gameOver) return
     setSelectedNumericCode(numericCode)
     const isCorrect = numericCode === currentChallenge.numericCode
     if (isCorrect) {
+      const nextStreak = currentStreak + 1
       setScore((prev) => prev + 1)
+      setCurrentStreak(nextStreak)
+      setBestStreak((best) => Math.max(best, nextStreak))
       setAnswer('correct')
     } else {
+      const nextMistakeCount = mistakeCount + 1
+      setMistakeCount(nextMistakeCount)
+      setCurrentStreak(0)
       setAnswer('wrong')
+      if (nextMistakeCount >= mistakeLimit) {
+        recordGameResult()
+        setGameOver(true)
+      }
     }
   }
 
@@ -91,6 +178,7 @@ function App() {
       setAnswer(null)
       setSelectedNumericCode(null)
     } else {
+      recordGameResult()
       setRoundComplete(true)
     }
   }
@@ -100,6 +188,16 @@ function App() {
     return new Intl.NumberFormat('es-AR').format(pop) + ' hab.'
   }
 
+  function formatDuration(seconds: number) {
+    const minutes = Math.floor(seconds / 60)
+    const remainingSeconds = seconds % 60
+    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
+  }
+
+  const visibleLeaderboard = leaderboardEntries
+    .filter((entry) => entry.difficulty === leaderboardDifficulty)
+    .sort((first, second) => second.streak - first.streak || first.durationSeconds - second.durationSeconds)
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -108,14 +206,16 @@ function App() {
           <span>FLAG<span className="wordmark-accent">QUEST</span></span>
         </button>
         <div className="topbar-right">
-          <span className="api-badge" title="Consumiendo datos vía API">
-            <i /> {isApiReady ? 'API REST CONECTADA' : 'CARGANDO API...'}
-          </span>
-          <span className="build-tag"><i /> DEMO FULL</span>
           {screen === 'game' && (
-            <button className="text-button" type="button" onClick={() => setScreen('home')}>
-              ← Menú principal
-            </button>
+            <>
+              <span className="api-badge" title="Consumiendo datos vía API">
+                <i /> {isApiReady ? 'API REST CONECTADA' : 'CARGANDO API...'}
+              </span>
+              <span className="build-tag"><i /> DEMO FULL</span>
+              <button className="text-button" type="button" onClick={() => setScreen('home')}>
+                ← Menú principal
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -123,13 +223,11 @@ function App() {
       {screen === 'home' ? (
         <section className="home-screen">
           <div className="intro-copy">
-            <p className="eyebrow"><span>01</span> · ATLAS DE BOLSILLO</p>
             <h1>El mundo<br />está en juego<span className="title-period">.</span></h1>
             <p className="intro-description">Una bandera. Un mapa. ¿Cuántos países podés reconocer?</p>
             <div className="home-rule"><span /></div>
             <div className="mode-heading">
-              <div><span className="section-index">A</span><h2>Elegí tu dificultad</h2></div>
-              <span className="mode-note">PODÉS CAMBIARLA DESPUÉS</span>
+              <h2>Elegí tu dificultad</h2>
             </div>
             <div className="difficulty-options" role="group" aria-label="Dificultad">
               <button
@@ -162,57 +260,46 @@ function App() {
               <span>{isLoading ? 'CARGANDO PAÍSES...' : 'INICIAR PARTIDA'}</span>
               <span className="start-arrow" aria-hidden="true">→</span>
             </button>
-            <p className="session-note">
-              <span className="pixel-star">✦</span> Datos globales en tiempo real vía API pública
-            </p>
           </div>
 
-          <aside className="preview-panel" aria-label="Vista previa del juego">
-            <div className="panel-topline">
-              <span>VISTA PREVIA</span>
-              <span className="panel-coordinates">CÓDIGO: {previewCountry.code || 'ISO'}</span>
+          <aside className="leaderboard-panel" aria-label="Leaderboard">
+            <div className="leaderboard-heading">
+              <span>RANKING LOCAL</span>
+              <h2>Leaderboard</h2>
             </div>
-            <div className="preview-map" aria-hidden="true">
-              <div className="map-grid" />
-              <svg className="preview-world" viewBox="0 0 600 330" role="presentation">
-                <path d="M69 91 93 65l34-13 20 12 25-4 22 18-12 20 17 17-11 17-27 3-14 24-22 9-4 27-18 20-13-14 2-24-18-18-2-27-19-17 5-26-10-22 21-20Z" />
-                <path d="m179 179 26 10 18 20-2 24 16 24-8 24-17 19-8 36-16 13-11-26-3-35-16-28 3-35-11-27 9-19Z" />
-                <path d="m268 84 22-17 30 5 9 18-20 12-24-3-17 9-18-8Z" />
-                <path d="m288 127 22-14 35 6 17 21 20 12 9 29-14 23-5 39-19 29-20-8-16-28-3-30-18-17-11-28-17-10Z" />
-                <path d="m343 85 42-24 57 9 29 19 53 9 15 25-18 17-30-11-15 14-23-6-20 21-17-6-17 17-20-13-6-22-25-12-15-20-25 1-14-10Z" />
-                <path d="m472 223 21-10 23 8 15 18-12 20-26 4-18-13-10-14Z" />
-                <path d="m568 264 7-4 6 8-7 7-7-4Z" />
-              </svg>
-              <div className="map-label label-west">PACÍFICO</div>
-              <div className="map-label label-east">OCÉANO<br />ÍNDICO</div>
-              <div className="map-pin"><span /><i /></div>
-              <div className="map-caption"><span className="caption-dot" /> MAPA INTERACTIVO DINÁMICO</div>
+            <div className="leaderboard-tabs" role="group" aria-label="Filtrar leaderboard por dificultad">
+              <button
+                type="button"
+                aria-pressed={leaderboardDifficulty === 'easy'}
+                className={leaderboardDifficulty === 'easy' ? 'selected' : ''}
+                onClick={() => setLeaderboardDifficulty('easy')}
+              >Fácil</button>
+              <button
+                type="button"
+                aria-pressed={leaderboardDifficulty === 'hard'}
+                className={leaderboardDifficulty === 'hard' ? 'selected' : ''}
+                onClick={() => setLeaderboardDifficulty('hard')}
+              >Difícil</button>
             </div>
-            <div className="preview-bottom">
-              <div className="flag-preview">
-                <span className="flag-label">BANDERA DEL DÍA (API)</span>
-                <div className="sample-flag" aria-label={`Bandera de ${previewCountry.country}`}>
-                  <img src={previewCountry.flagUrl} alt={`Bandera de ${previewCountry.country}`} />
-                </div>
-              </div>
-              <div className="preview-separator" />
-              <div className="preview-copy">
-                <span>EJEMPLO ACTIVO</span>
-                <strong>{previewCountry.country}</strong>
-                <small>{previewCountry.continent} · Capital: {previewCountry.capital}</small>
-              </div>
-              <span className="pixel-compass" aria-hidden="true">N<br /><b>✦</b></span>
-            </div>
-            <div className="panel-footnote">
-              <span>FQ-REST</span>
-              <span>POBLACIÓN: {formatPopulation(previewCountry.population)}</span>
-              <span>◆</span>
-            </div>
+            <table className="leaderboard-table">
+              <thead>
+                <tr><th>Jugador</th><th>Racha</th><th>Tiempo</th></tr>
+              </thead>
+              <tbody>
+                {visibleLeaderboard.map((entry, index) => (
+                  <tr key={entry.id}>
+                    <td><span className="leaderboard-rank">{String(index + 1).padStart(2, '0')}</span>{entry.playerName}</td>
+                    <td>{entry.streak}</td>
+                    <td>{formatDuration(entry.durationSeconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {visibleLeaderboard.length === 0 && (
+              <p className="leaderboard-empty">Todavía no hay partidas en este modo. Tu resultado aparecerá acá.</p>
+            )}
+            <p className="leaderboard-note">MEJOR RACHA · PARTIDAS DE ESTE NAVEGADOR</p>
           </aside>
-          <div className="home-footer">
-            <span>CONSUMO DE DATOS MEDIANTE API PÚBLICA DE PAÍSES Y BANDERAS</span>
-            <span>HECHO CON CURIOSIDAD <b>✳</b></span>
-          </div>
         </section>
       ) : roundComplete ? (
         <section className="completion-view">
@@ -221,6 +308,10 @@ function App() {
           <p>
             Identificaste <strong>{score}</strong> de <strong>{challenges.length}</strong> países correctamente.
           </p>
+          <div className="completion-stats">
+            <span>MEJOR RACHA <strong>{bestStreak}</strong></span>
+            <span>TIEMPO <strong>{formatDuration(gameDurationSeconds)}</strong></span>
+          </div>
           <div className="completion-actions">
             <button className="start-button" type="button" onClick={startNewGame}>
               <span>NUEVA RONDA CON OTROS PAÍSES</span>
@@ -241,6 +332,11 @@ function App() {
             <div className="round-counter">
               <span>DESAFÍO</span>
               <strong>0{challengeIndex + 1}<i> / 0{challenges.length}</i></strong>
+            </div>
+            <div className="game-stats">
+              <div><span>RACHA ACTUAL</span><strong>{currentStreak}</strong></div>
+              <div><span>ERRORES</span><strong>{mistakeCount}/{mistakeLimit}</strong></div>
+              <div><span>TIEMPO</span><strong>{formatDuration(elapsedSeconds)}</strong></div>
             </div>
           </div>
           <div className="game-layout">
@@ -277,7 +373,11 @@ function App() {
                 {answer === 'wrong' && (
                   <>
                     <strong>Por ahí no</strong>
-                    <span>Probá con otro país del mapa.</span>
+                    <span>
+                      {mistakeCount < mistakeLimit
+                        ? `Racha reiniciada. Te quedan ${mistakeLimit - mistakeCount} errores.`
+                        : 'Límite de errores alcanzado.'}
+                    </span>
                   </>
                 )}
                 {!answer && (
@@ -336,6 +436,26 @@ function App() {
             <span>!</span> Banderas y datos geográficos obtenidos dinámicamente vía API.
           </p>
         </section>
+      )}
+      {screen === 'game' && gameOver && (
+        <div className="game-over-backdrop">
+          <section className="game-over-dialog" role="dialog" aria-modal="true" aria-labelledby="game-over-title">
+            <p className="eyebrow">02 · RESUMEN DE PARTIDA</p>
+            <h2 id="game-over-title">Fin de la partida</h2>
+            <div className="game-over-stats">
+              <div><span>RACHA</span><strong>{bestStreak} países</strong></div>
+              <div><span>TIEMPO</span><strong>{formatDuration(gameDurationSeconds)}</strong></div>
+            </div>
+            <div className="game-over-actions">
+              <button className="start-button" type="button" disabled={isLoading} onClick={startNewGame}>
+                <span>VOLVER A JUGAR</span><span className="start-arrow" aria-hidden="true">→</span>
+              </button>
+              <button className="text-button" type="button" onClick={() => setScreen('home')}>
+                Volver a la leaderboard
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </main>
   )

@@ -24,6 +24,18 @@ function getCountryName(feature: google.maps.Data.Feature) {
   return typeof name === 'string' ? name : ''
 }
 
+function getMapStyles(showCountryNames: boolean): google.maps.MapTypeStyle[] {
+  return [
+    { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#52646a' }] },
+    { featureType: 'all', elementType: 'labels', stylers: [{ visibility: showCountryNames ? 'on' : 'off' }] },
+    { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#d6e6d9' }] },
+    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+    { featureType: 'road', stylers: [{ visibility: 'off' }] },
+    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+    { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#a9cfcb' }] },
+  ]
+}
+
 export function GoogleCountryMap({
   targetCountryNumericCode,
   selectedNumericCode,
@@ -70,14 +82,7 @@ export function GoogleCountryMap({
           streetViewControl: false,
           mapTypeControl: false,
           fullscreenControl: false,
-          styles: [
-            { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#52646a' }] },
-            { featureType: 'landscape', elementType: 'geometry.fill', stylers: [{ color: '#d6e6d9' }] },
-            { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-            { featureType: 'road', stylers: [{ visibility: 'off' }] },
-            { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-            { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#a9cfcb' }] },
-          ],
+          styles: getMapStyles(showCountryNamesRef.current),
         })
         setMapInstance(map)
 
@@ -94,6 +99,7 @@ export function GoogleCountryMap({
 
         const infoWindow = new google.maps.InfoWindow()
         clickListener = map.data.addListener('click', (event: google.maps.Data.MouseEvent) => {
+          infoWindow.close()
           const numericCode = getNumericCode(event.feature)
           if (numericCode) clickHandlerRef.current(numericCode)
         })
@@ -132,9 +138,13 @@ export function GoogleCountryMap({
   }, [apiKey])
 
   useEffect(() => {
+    mapInstance?.setOptions({ styles: getMapStyles(showCountryNames) })
+  }, [mapInstance, showCountryNames])
+
+  useEffect(() => {
     mapInstance?.data.setStyle((feature) => {
       const numericCode = getNumericCode(feature)
-          const isTarget = numericCode === targetCountryNumericCode
+      const isTarget = numericCode === targetCountryNumericCode
       const isSelectedWrongCountry = numericCode === selectedNumericCode && !isCorrect
 
       return {
