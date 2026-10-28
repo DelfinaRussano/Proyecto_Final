@@ -7,7 +7,7 @@ import {
   type CountryChallenge,
 } from './services/countriesApi'
 
-type Difficulty = 'easy' | 'hard'
+type Difficulty = 'easy' | 'normal' | 'hard'
 const totalCountries = 195
 
 interface LeaderboardEntry {
@@ -31,7 +31,7 @@ function readLeaderboard(): LeaderboardEntry[] {
       && typeof entry?.playerName === 'string'
       && typeof entry?.streak === 'number'
       && typeof entry?.durationSeconds === 'number'
-      && (entry?.difficulty === 'easy' || entry?.difficulty === 'hard'),
+      && (entry?.difficulty === 'easy' || entry?.difficulty === 'normal' || entry?.difficulty === 'hard'),
     )
   } catch {
     return []
@@ -116,7 +116,7 @@ function App() {
   const geographicHint = answer === 'wrong' && difficulty === 'easy'
     ? getGeographicHint(currentChallenge, selectedCountry)
     : null
-  const mistakeLimit = 5
+  const mistakeLimit = difficulty === 'normal' ? 4 : 5
 
   async function startNewGame() {
     setIsLoading(true)
@@ -243,8 +243,18 @@ function App() {
                 aria-pressed={difficulty === 'easy'}
                 onClick={() => setDifficulty('easy')}
               >
-                <span className="option-mark easy-mark">E</span>
-                <span className="option-copy"><strong>Normal</strong><small>Nombres en el mapa y pistas activadas</small></span>
+                <span className="option-mark easy-mark">F</span>
+                <span className="option-copy"><strong>Fácil</strong><small>Nombres en el mapa y pistas activadas</small></span>
+                <span className="radio-mark" />
+              </button>
+              <button
+                className={`difficulty-option ${difficulty === 'normal' ? 'selected' : ''}`}
+                type="button"
+                aria-pressed={difficulty === 'normal'}
+                onClick={() => setDifficulty('normal')}
+              >
+                <span className="option-mark normal-mark">N</span>
+                <span className="option-copy"><strong>Normal</strong><small>Nombres en el mapa, sin pistas</small></span>
                 <span className="radio-mark" />
               </button>
               <button
@@ -254,7 +264,7 @@ function App() {
                 onClick={() => setDifficulty('hard')}
               >
                 <span className="option-mark hard-mark">D</span>
-                <span className="option-copy"><strong>Difícil</strong><small>Sin nombres, sin pistas</small></span>
+                <span className="option-copy"><strong>Difícil</strong><small>Sin nombres y sin pistas</small></span>
                 <span className="radio-mark" />
               </button>
             </div>
@@ -280,6 +290,12 @@ function App() {
                 aria-pressed={leaderboardDifficulty === 'easy'}
                 className={leaderboardDifficulty === 'easy' ? 'selected' : ''}
                 onClick={() => setLeaderboardDifficulty('easy')}
+              >Fácil</button>
+              <button
+                type="button"
+                aria-pressed={leaderboardDifficulty === 'normal'}
+                className={leaderboardDifficulty === 'normal' ? 'selected' : ''}
+                onClick={() => setLeaderboardDifficulty('normal')}
               >Normal</button>
               <button
                 type="button"
@@ -384,7 +400,7 @@ function App() {
                   <>
                     <strong>Tu turno</strong>
                     <span>
-                      {difficulty === 'easy'
+                      {difficulty !== 'hard'
                         ? 'Explorá el mapa para ver los nombres de los países.'
                         : 'Esta vez, confiá en tu memoria geográfica.'}
                     </span>
@@ -398,8 +414,8 @@ function App() {
                 </button>
               ) : (
                 <div className="difficulty-chip">
-                  <span className={difficulty === 'easy' ? 'chip-easy' : 'chip-hard'}>
-                    {difficulty === 'easy' ? 'NORMAL' : 'DIFÍCIL'}
+                  <span className={difficulty === 'hard' ? 'chip-hard' : 'chip-easy'}>
+                    {difficulty === 'easy' ? 'FÁCIL' : difficulty === 'normal' ? 'NORMAL' : 'DIFÍCIL'}
                   </span>
                   <span>·</span>
                   <span>{difficulty === 'easy' ? 'PISTAS ACTIVAS' : 'SIN PISTAS'}</span>
@@ -417,15 +433,15 @@ function App() {
                   targetCountryNumericCode={currentChallenge.numericCode}
                   selectedNumericCode={selectedNumericCode}
                   isCorrect={answer === 'correct'}
-                  showCountryNames={difficulty === 'easy'}
+                  showCountryNames={difficulty !== 'hard'}
                   guessedCountryNumericCodes={guessedCountryNumericCodes}
-                  showGuessedCountries={difficulty === 'easy'}
+                  showGuessedCountries={difficulty !== 'hard'}
                   onCountryClick={chooseCountry}
                 />
               </div>
               <div className="map-panel-footer">
                 <span>
-                  <i /> {difficulty === 'easy' ? 'MODO NORMAL · NOMBRES VISIBLES' : 'MODO DIFÍCIL · NOMBRES OCULTOS'}
+                  <i /> {difficulty === 'hard' ? 'MODO DIFÍCIL · NOMBRES OCULTOS' : `MODO ${difficulty === 'easy' ? 'FÁCIL' : 'NORMAL'} · NOMBRES VISIBLES`}
                 </span>
                 <span>PAÍSES SELECCIONABLES · GOOGLE MAPS</span>
               </div>
