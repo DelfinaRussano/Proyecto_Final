@@ -6,37 +6,15 @@ import {
   getRandomChallenges,
   type CountryChallenge,
 } from './services/countriesApi'
+import {
+  getLeaderboardFromApi,
+  saveScoreToApi,
+  deleteScoreFromApi,
+  type LeaderboardEntry,
+  type Difficulty,
+} from './services/leaderboardApi'
 
-type Difficulty = 'easy' | 'normal' | 'hard'
 const totalCountries = 195
-
-interface LeaderboardEntry {
-  id: string
-  playerName: string
-  streak: number
-  durationSeconds: number
-  difficulty: Difficulty
-}
-
-const leaderboardStorageKey = 'flagquest-leaderboard-v1'
-
-function readLeaderboard(): LeaderboardEntry[] {
-  try {
-    const storedEntries = localStorage.getItem(leaderboardStorageKey)
-    if (!storedEntries) return []
-    const parsedEntries: unknown = JSON.parse(storedEntries)
-    if (!Array.isArray(parsedEntries)) return []
-    return parsedEntries.filter((entry): entry is LeaderboardEntry =>
-      typeof entry?.id === 'string'
-      && typeof entry?.playerName === 'string'
-      && typeof entry?.streak === 'number'
-      && typeof entry?.durationSeconds === 'number'
-      && (entry?.difficulty === 'easy' || entry?.difficulty === 'normal' || entry?.difficulty === 'hard'),
-    )
-  } catch {
-    return []
-  }
-}
 
 const INITIAL_FALLBACK: CountryChallenge[] = [
   { id: 'jp', country: 'Japón', continent: 'Asia', capital: 'Tokio', flagUrl: 'https://flagcdn.com/w640/jp.png', code: 'JP', numericCode: '392', isSovereign: true, population: 125800000 },
@@ -79,6 +57,7 @@ function getGeographicHint(target: CountryChallenge, selected: CountryChallenge 
 }
 
 function App() {
+  const [playerName, setPlayerName] = useState('Jugador local')
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [leaderboardDifficulty, setLeaderboardDifficulty] = useState<Difficulty>('easy')
   const [screen, setScreen] = useState<'home' | 'game'>('home')
@@ -95,10 +74,44 @@ function App() {
   const [guessedCountryNumericCodes, setGuessedCountryNumericCodes] = useState<string[]>([])
   const [currentStreak, setCurrentStreak] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
-  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>(readLeaderboard)
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([])
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false)
   const [gameStartedAt, setGameStartedAt] = useState<number | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [gameDurationSeconds, setGameDurationSeconds] = useState(0)
+
+  const refreshLeaderboard = (mode: Difficulty) => {
+    setIsLeaderboardLoading(true)
+    getLeaderboardFromApi(mode)
+      .then((data) => {
+        setLeaderboardEntries(data)
+      })
+      .finally(() => {
+        setIsLeaderboardLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    let ignore = false
+    getLeaderboardFromApi(leaderboardDifficulty)
+      .then((data) => {
+        if (!ignore) {
+          setLeaderboardEntries(data)
+        }
+      })
+      .catch((err) => {
+        console.error('Error al consultar leaderboard:', err)
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLeaderboardLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [leaderboardDifficulty])
 
   useEffect(() => {
     if (screen !== 'game' || roundComplete || gameOver || gameStartedAt === null) return
@@ -149,29 +162,26 @@ function App() {
     }
   }
 
-  function recordGameResult() {
+  async function recordGameResult() {
     const durationSeconds = gameStartedAt === null
       ? elapsedSeconds
       : Math.floor((Date.now() - gameStartedAt) / 1000)
-    const entry: LeaderboardEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      playerName: 'Jugador local',
-      streak: bestStreak,
-      durationSeconds,
-      difficulty,
-    }
     setGameDurationSeconds(durationSeconds)
-    const currentModeEntries = [...leaderboardEntries.filter((result) => result.difficulty === difficulty), entry]
-      .sort((first, second) => second.streak - first.streak || first.durationSeconds - second.durationSeconds)
-      .slice(0, 10)
-    const otherModeEntries = leaderboardEntries.filter((result) => result.difficulty !== difficulty)
-    const updatedEntries = [...otherModeEntries, ...currentModeEntries]
-    setLeaderboardEntries(updatedEntries)
+
     try {
-      localStorage.setItem(leaderboardStorageKey, JSON.stringify(updatedEntries))
+      await saveScoreToApi(playerName, bestStreak, durationSeconds, difficulty)
+      if (difficulty === leaderboardDifficulty) {
+        refreshLeaderboard(difficulty)
+      }
     } catch (error) {
-      console.warn('No se pudo guardar la leaderboard local:', error)
+      console.warn('Error al guardar puntaje en la base de datos:', error)
     }
+  }
+
+  async function handleDeleteScore(id: string | number) {
+    if (!window.confirm('¿Deseas eliminar este registro de la base de datos?')) return
+    await deleteScoreFromApi(id)
+    refreshLeaderboard(leaderboardDifficulty)
   }
 
   function chooseCountry(numericCode: string) {
@@ -215,8 +225,6 @@ function App() {
   }
 
   const visibleLeaderboard = leaderboardEntries
-    .filter((entry) => entry.difficulty === leaderboardDifficulty)
-    .sort((first, second) => second.streak - first.streak || first.durationSeconds - second.durationSeconds)
 
   return (
     <main className="app-shell">
@@ -233,6 +241,20 @@ function App() {
             <h1>El mundo<br />está en juego<span className="title-period">.</span></h1>
             <p className="intro-description">Una bandera. Un mapa. ¿Cuántos países podés reconocer?</p>
             <div className="home-rule"><span /></div>
+
+            <div className="player-name-field">
+              <label htmlFor="player-name-input">Nombre de jugador</label>
+              <input
+                id="player-name-input"
+                className="player-name-input"
+                type="text"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                maxLength={20}
+                placeholder="Ingresá tu apodo"
+              />
+            </div>
+
             <div className="mode-heading">
               <h2>Elegí tu dificultad</h2>
             </div>
@@ -281,7 +303,7 @@ function App() {
 
           <aside className="leaderboard-panel" aria-label="Leaderboard">
             <div className="leaderboard-heading">
-              <span>RANKING LOCAL</span>
+              <span>BASE DE DATOS · SQLITE</span>
               <h2>Leaderboard</h2>
             </div>
             <div className="leaderboard-tabs" role="group" aria-label="Filtrar leaderboard por dificultad">
@@ -306,7 +328,12 @@ function App() {
             </div>
             <table className="leaderboard-table">
               <thead>
-                <tr><th>Jugador</th><th>Racha</th><th>Tiempo</th></tr>
+                <tr>
+                  <th>Jugador</th>
+                  <th>Racha</th>
+                  <th>Tiempo</th>
+                  <th style={{ width: '28px', textAlign: 'center' }}>ABM</th>
+                </tr>
               </thead>
               <tbody>
                 {visibleLeaderboard.map((entry, index) => (
@@ -314,14 +341,27 @@ function App() {
                     <td><span className="leaderboard-rank">{String(index + 1).padStart(2, '0')}</span>{entry.playerName}</td>
                     <td>{entry.streak}</td>
                     <td>{formatDuration(entry.durationSeconds)}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        className="delete-score-btn"
+                        title="Eliminar partida (Baja en base de datos)"
+                        onClick={() => handleDeleteScore(entry.id)}
+                      >
+                        ✕
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {visibleLeaderboard.length === 0 && (
-              <p className="leaderboard-empty">Todavía no hay partidas en este modo. Tu resultado aparecerá acá.</p>
+            {isLeaderboardLoading && (
+              <p className="leaderboard-empty">Consultando base de datos SQLite...</p>
             )}
-            <p className="leaderboard-note">MEJOR RACHA · PARTIDAS DE ESTE NAVEGADOR</p>
+            {!isLeaderboardLoading && visibleLeaderboard.length === 0 && (
+              <p className="leaderboard-empty">Todavía no hay partidas guardadas en este modo. Tu resultado aparecerá acá.</p>
+            )}
+            <p className="leaderboard-note">RANKING EN TIEMPO REAL · PERSISTENCIA EN SQLITE</p>
           </aside>
         </section>
       ) : roundComplete ? (

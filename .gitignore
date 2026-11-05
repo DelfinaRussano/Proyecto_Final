@@ -11,6 +11,13 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+
+# Database
+server/data/*.db
+server/data/*.db-journal
 
 # Editor directories and files
 .vscode/*
