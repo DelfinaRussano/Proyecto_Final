@@ -2,6 +2,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard'
 
 export interface LeaderboardEntry {
   id: string | number
+  user_id?: number
   playerName: string
   streak: number
   durationSeconds: number
@@ -50,6 +51,7 @@ export async function getLeaderboardFromApi(difficulty: Difficulty): Promise<Lea
 
 // 2. Alta (Create): Guarda una partida en la base de datos SQLite
 export async function saveScoreToApi(
+  token: string,
   playerName: string,
   streak: number,
   durationSeconds: number,
@@ -58,7 +60,7 @@ export async function saveScoreToApi(
   try {
     const res = await fetch('/api/leaderboard', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ playerName, streak, durationSeconds, difficulty }),
     })
 
@@ -84,11 +86,15 @@ export async function saveScoreToApi(
 }
 
 // 3. Baja (Delete): Elimina un registro de la base de datos (ABM)
-export async function deleteScoreFromApi(id: string | number): Promise<boolean> {
+export async function deleteScoreFromApi(id: string | number, token: string): Promise<boolean> {
   try {
     const res = await fetch(`/api/leaderboard/${id}`, {
       method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
     })
+    if (!res.ok) {
+      throw new Error(`Error ${res.status} al eliminar partida`)
+    }
     return res.ok
   } catch (err) {
     console.warn('Error al eliminar en API:', err)
@@ -97,4 +103,3 @@ export async function deleteScoreFromApi(id: string | number): Promise<boolean> 
     return true
   }
 }
-

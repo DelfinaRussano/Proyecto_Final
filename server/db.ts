@@ -33,15 +33,18 @@ export function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_scores_difficulty ON scores(difficulty);
     CREATE INDEX IF NOT EXISTS idx_scores_user ON scores(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiration ON sessions(expires_at);
   `)
-
-  // Asegurar usuario por defecto para partidas como invitado / jugador local
-  const guestUser = db.prepare('SELECT id FROM users WHERE username = ?').get('Jugador local') as { id: number } | undefined
-  if (!guestUser) {
-    db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('Jugador local', 'guest_account')
-  }
 }
 
 // Interfaces
@@ -60,6 +63,33 @@ export interface DbScoreEntry {
   durationSeconds: number
   difficulty: 'easy' | 'normal' | 'hard'
   created_at: string
+}
+
+export interface DbSessionUser {
+  id: number
+  username: string
+}
+
+export const authRepo = {
+  createSession(tokenHash: string, userId: number, expiresAt: number) {
+    db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
+      .run(tokenHash, userId, expiresAt)
+  },
+
+  getSessionUser(tokenHash: string, now: number): DbSessionUser | null {
+    db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now)
+    const row = db.prepare(`
+      SELECT u.id, u.username
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ? AND s.expires_at > ?
+    `).get(tokenHash, now)
+    return (row as DbSessionUser) || null
+  },
+
+  deleteSession(tokenHash: string) {
+    db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash)
+  },
 }
 
 // Operaciones ABM / CRUD para Scores
@@ -108,7 +138,7 @@ export const scoresRepo = {
         s.created_at
       FROM scores s
       JOIN users u ON s.user_id = u.id
-      WHERE s.difficulty = ?
+      WHERE s.difficulty = ? AND u.password_hash != 'guest_account'
       ORDER BY s.streak DESC, s.duration_seconds ASC
       LIMIT ?
     `)
@@ -116,9 +146,9 @@ export const scoresRepo = {
   },
 
   // Baja (Delete)
-  delete(id: number): boolean {
-    const stmt = db.prepare('DELETE FROM scores WHERE id = ?')
-    const result = stmt.run(id)
+  delete(id: number, userId: number): boolean {
+    const stmt = db.prepare('DELETE FROM scores WHERE id = ? AND user_id = ?')
+    const result = stmt.run(id, userId)
     return Number(result.changes) > 0
   },
 }
@@ -140,7 +170,7 @@ export const usersRepo = {
 
   // Consulta por nombre de usuario (Read)
   getByUsername(username: string): DbUser | null {
-    const query = db.prepare('SELECT id, username, password_hash, created_at FROM users WHERE username = ?')
+    const query = db.prepare('SELECT id, username, password_hash, created_at FROM users WHERE username = ? COLLATE NOCASE')
     return (query.get(username) as DbUser) || null
   },
 
@@ -165,4 +195,3 @@ if (process.argv[1]?.endsWith('db.ts')) {
   console.log('Base de datos SQLite inicializada exitosamente en:', dbPath)
   console.log('Leaderboard Fácil:', scoresRepo.getLeaderboard('easy'))
 }
-

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import './App.css'
 import { GoogleCountryMap } from './components/GoogleCountryMap'
 import {
@@ -13,6 +13,15 @@ import {
   type LeaderboardEntry,
   type Difficulty,
 } from './services/leaderboardApi'
+import {
+  getCurrentUser,
+  getStoredAuthToken,
+  loginAccount,
+  logoutAccount,
+  registerAccount,
+  storeAuthToken,
+  type AuthUser,
+} from './services/authApi'
 
 const totalCountries = 195
 
@@ -57,10 +66,21 @@ function getGeographicHint(target: CountryChallenge, selected: CountryChallenge 
 }
 
 function App() {
-  const [playerName, setPlayerName] = useState('Jugador local')
+  const accountMenuRef = useRef<HTMLDivElement>(null)
+  const accountMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuthToken())
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
+  const [isAuthChecking, setIsAuthChecking] = useState(() => Boolean(getStoredAuthToken()))
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authUsername, setAuthUsername] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authPasswordConfirmation, setAuthPasswordConfirmation] = useState('')
   const [difficulty, setDifficulty] = useState<Difficulty>('easy')
   const [leaderboardDifficulty, setLeaderboardDifficulty] = useState<Difficulty>('easy')
-  const [screen, setScreen] = useState<'home' | 'game'>('home')
+  const [screen, setScreen] = useState<'home' | 'auth' | 'game'>('home')
   const [challenges, setChallenges] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
   const [countryDirectory, setCountryDirectory] = useState<CountryChallenge[]>(INITIAL_FALLBACK)
   const [challengeIndex, setChallengeIndex] = useState(0)
@@ -79,6 +99,56 @@ function App() {
   const [gameStartedAt, setGameStartedAt] = useState<number | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [gameDurationSeconds, setGameDurationSeconds] = useState(0)
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return
+
+    function handlePointerDown(event: PointerEvent) {
+      if (event.target instanceof Node && !accountMenuRef.current?.contains(event.target)) {
+        setIsAccountMenuOpen(false)
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsAccountMenuOpen(false)
+        accountMenuButtonRef.current?.focus()
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isAccountMenuOpen])
+
+  useEffect(() => {
+    if (!authToken) return
+
+    let ignore = false
+    getCurrentUser(authToken)
+      .then(({ user }) => {
+        if (!ignore) setAuthUser(user)
+      })
+      .catch((error: unknown) => {
+        if (!ignore) {
+          console.warn('No se pudo validar la sesión guardada:', error)
+          storeAuthToken(null)
+          setAuthToken(null)
+          setAuthUser(null)
+          setAuthError('No se pudo validar la sesión. Iniciá sesión nuevamente o continuá como invitado.')
+        }
+      })
+      .finally(() => {
+        if (!ignore) setIsAuthChecking(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [authToken])
 
   const refreshLeaderboard = (mode: Difficulty) => {
     setIsLeaderboardLoading(true)
@@ -132,6 +202,7 @@ function App() {
   const mistakeLimit = difficulty === 'normal' ? 4 : 5
 
   async function startNewGame() {
+    if (isAuthChecking) return
     setIsLoading(true)
     setRoundComplete(false)
     setGameOver(false)
@@ -168,8 +239,10 @@ function App() {
       : Math.floor((Date.now() - gameStartedAt) / 1000)
     setGameDurationSeconds(durationSeconds)
 
+    if (!authToken || !authUser) return
+
     try {
-      await saveScoreToApi(playerName, bestStreak, durationSeconds, difficulty)
+      await saveScoreToApi(authToken, authUser.username, bestStreak, durationSeconds, difficulty)
       if (difficulty === leaderboardDifficulty) {
         refreshLeaderboard(difficulty)
       }
@@ -180,8 +253,60 @@ function App() {
 
   async function handleDeleteScore(id: string | number) {
     if (!window.confirm('¿Deseas eliminar este registro de la base de datos?')) return
-    await deleteScoreFromApi(id)
+    if (!authToken) return
+    await deleteScoreFromApi(id, authToken)
     refreshLeaderboard(leaderboardDifficulty)
+  }
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setAuthError(null)
+
+    if (authMode === 'register' && authPassword !== authPasswordConfirmation) {
+      setAuthError('Las contraseñas no coinciden.')
+      return
+    }
+
+    setAuthLoading(true)
+    try {
+      const session = authMode === 'register'
+        ? await registerAccount(authUsername, authPassword)
+        : await loginAccount(authUsername, authPassword)
+      storeAuthToken(session.token)
+      setAuthToken(session.token)
+      setAuthUser(session.user)
+      setAuthPassword('')
+      setAuthPasswordConfirmation('')
+      setAuthError(null)
+      setScreen('home')
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'No se pudo completar la autenticación.')
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  function handleLogout() {
+    const token = authToken
+    storeAuthToken(null)
+    setAuthToken(null)
+    setAuthUser(null)
+    setIsAccountMenuOpen(false)
+    setIsAuthChecking(false)
+    setScreen('home')
+    if (token) {
+      void logoutAccount(token).catch((error: unknown) => {
+        console.warn('No se pudo cerrar la sesión en el servidor:', error)
+      })
+    }
+  }
+
+  function openAuthScreen() {
+    setAuthMode('login')
+    setAuthError(null)
+    setAuthPassword('')
+    setAuthPasswordConfirmation('')
+    setScreen('auth')
   }
 
   function chooseCountry(numericCode: string) {
@@ -233,27 +358,117 @@ function App() {
           <span className="wordmark-icon" aria-hidden="true"><span /></span>
           <span>FLAG<span className="wordmark-accent">QUEST</span></span>
         </button>
+        <div className="topbar-right">
+          {authUser ? (
+            <div className="account-menu" ref={accountMenuRef}>
+              <button
+                className="account-menu-trigger"
+                type="button"
+                ref={accountMenuButtonRef}
+                aria-label={`Menú de cuenta de ${authUser.username}`}
+                aria-haspopup="menu"
+                aria-expanded={isAccountMenuOpen}
+                onClick={() => setIsAccountMenuOpen((isOpen) => !isOpen)}
+              >
+                <span aria-hidden="true">{authUser.username === 'Ando' ? '🐴' : '👤'}</span>
+                <span className="account-menu-label">{authUser.username}</span>
+              </button>
+              {isAccountMenuOpen && (
+                <div className="account-menu-dropdown" role="menu">
+                  <span className="account-menu-username">{authUser.username}</span>
+                  <button className="account-menu-logout" type="button" role="menuitem" onClick={handleLogout}>
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : screen === 'home' ? (
+            <button className="text-button login-link" type="button" onClick={openAuthScreen}>Iniciar sesión</button>
+          ) : null}
+        </div>
       </header>
 
-      {screen === 'home' ? (
+      {screen === 'auth' ? (
+        <section className="auth-screen">
+          <form className="auth-panel" onSubmit={(event) => void handleAuthSubmit(event)}>
+            <p className="eyebrow"><span>CUENTA FLAGQUEST</span></p>
+            <h1>{authMode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}</h1>
+            <p className="auth-description">
+              {authMode === 'login'
+                ? 'Ingresá tus credenciales para guardar tus resultados y aparecer en la leaderboard.'
+                : 'Creá una cuenta para guardar tus partidas y competir en la leaderboard.'}
+            </p>
+            <label className="auth-field">
+              <span>Nombre de usuario</span>
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                value={authUsername}
+                onChange={(event) => setAuthUsername(event.target.value)}
+                minLength={3}
+                maxLength={20}
+                required
+              />
+            </label>
+            <label className="auth-field">
+              <span>Contraseña</span>
+              <input
+                type="password"
+                name="password"
+                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                minLength={8}
+                maxLength={128}
+                required
+              />
+            </label>
+            {authMode === 'register' && (
+              <label className="auth-field">
+                <span>Repetí la contraseña</span>
+                <input
+                  type="password"
+                  name="password-confirmation"
+                  autoComplete="new-password"
+                  value={authPasswordConfirmation}
+                  onChange={(event) => setAuthPasswordConfirmation(event.target.value)}
+                  minLength={8}
+                  maxLength={128}
+                  required
+                />
+              </label>
+            )}
+            {authError && <p className="auth-error" role="alert">{authError}</p>}
+            <button className="start-button auth-submit" type="submit" disabled={authLoading}>
+              <span>{authLoading ? 'PROCESANDO...' : authMode === 'login' ? 'INICIAR SESIÓN' : 'CREAR CUENTA'}</span>
+              <span className="start-arrow" aria-hidden="true">→</span>
+            </button>
+            <p className="auth-switch">
+              {authMode === 'login' ? '¿Todavía no tenés cuenta?' : '¿Ya tenés cuenta?'}
+              {' '}
+              <button
+                className="inline-button"
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login')
+                  setAuthError(null)
+                  setAuthPassword('')
+                  setAuthPasswordConfirmation('')
+                }}
+              >
+                {authMode === 'login' ? 'Crear una cuenta' : 'Iniciar sesión'}
+              </button>
+            </p>
+          </form>
+        </section>
+      ) : screen === 'home' ? (
         <section className="home-screen">
           <div className="intro-copy">
             <h1>El mundo<br />está en juego<span className="title-period">.</span></h1>
             <p className="intro-description">Una bandera. Un mapa. ¿Cuántos países podés reconocer?</p>
             <div className="home-rule"><span /></div>
-
-            <div className="player-name-field">
-              <label htmlFor="player-name-input">Nombre de jugador</label>
-              <input
-                id="player-name-input"
-                className="player-name-input"
-                type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                maxLength={20}
-                placeholder="Ingresá tu apodo"
-              />
-            </div>
+            {authError && <p className="auth-error home-auth-error" role="alert">{authError}</p>}
 
             <div className="mode-heading">
               <h2>Elegí tu dificultad</h2>
@@ -293,12 +508,13 @@ function App() {
             <button
               className="start-button"
               type="button"
-              disabled={isLoading}
+              disabled={isLoading || isAuthChecking}
               onClick={startNewGame}
             >
               <span>{isLoading ? 'CARGANDO PAÍSES...' : 'INICIAR PARTIDA'}</span>
               <span className="start-arrow" aria-hidden="true">→</span>
             </button>
+            {!authUser && <p className="guest-note">Vas a jugar como invitado. Tu puntaje no se guardará en la leaderboard.</p>}
           </div>
 
           <aside className="leaderboard-panel" aria-label="Leaderboard">
@@ -342,14 +558,16 @@ function App() {
                     <td>{entry.streak}</td>
                     <td>{formatDuration(entry.durationSeconds)}</td>
                     <td style={{ textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        className="delete-score-btn"
-                        title="Eliminar partida (Baja en base de datos)"
-                        onClick={() => handleDeleteScore(entry.id)}
-                      >
-                        ✕
-                      </button>
+                      {authUser && entry.user_id === authUser.id && (
+                        <button
+                          type="button"
+                          className="delete-score-btn"
+                          title="Eliminar partida (Baja en base de datos)"
+                          onClick={() => handleDeleteScore(entry.id)}
+                        >
+                          ✕
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -371,12 +589,13 @@ function App() {
           <p>
             Identificaste <strong>{score}</strong> de <strong>{challenges.length}</strong> países correctamente.
           </p>
+          {!authUser && <p className="guest-note">Jugaste como invitado: este puntaje no se guardó.</p>}
           <div className="completion-stats">
             <span>MEJOR RACHA <strong>{bestStreak}</strong></span>
             <span>TIEMPO <strong>{formatDuration(gameDurationSeconds)}</strong></span>
           </div>
           <div className="completion-actions">
-            <button className="start-button" type="button" onClick={startNewGame}>
+            <button className="start-button" type="button" disabled={isLoading || isAuthChecking} onClick={startNewGame}>
               <span>NUEVA RONDA CON OTROS PAÍSES</span>
               <span className="start-arrow" aria-hidden="true">→</span>
             </button>
@@ -389,7 +608,7 @@ function App() {
         <section className="game-screen">
           <div className="game-heading">
             <div>
-              <p className="eyebrow"><span>02</span> · PARTIDA CONECTADA A API</p>
+              <p className="eyebrow"><span>02</span> · {authUser ? 'PARTIDA CON CUENTA' : 'PARTIDA COMO INVITADO'}</p>
               <h1>¿Dónde está?</h1>
             </div>
             <div className="game-stats">
@@ -494,6 +713,7 @@ function App() {
           <section className="game-over-dialog" role="dialog" aria-modal="true" aria-labelledby="game-over-title">
             <p className="eyebrow">02 · RESUMEN DE PARTIDA</p>
             <h2 id="game-over-title">Fin de la partida</h2>
+            {!authUser && <p className="guest-note">Jugaste como invitado: este puntaje no se guardó.</p>}
             <div className="game-over-stats">
               <div><span>RACHA</span><strong>{bestStreak} países</strong></div>
               <div><span>TIEMPO</span><strong>{formatDuration(gameDurationSeconds)}</strong></div>
