@@ -1,0 +1,2 @@
+# Este proyecto no tiene dependencias de Python.
+# Las dependencias de la aplicación están definidas en package.json.
